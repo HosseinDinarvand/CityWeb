@@ -19,6 +19,7 @@ namespace WebApplication10.Controllers
         private readonly ICountryRepository _countryRpository;
         private readonly IWeatherRepository _weatherRepository;
         private readonly IWeatherService _weatherService;
+        private readonly ApplicationDbContext _context;
         private readonly ICacheService _cacheService;
         private readonly ILogger<CityController> _logger;
         private readonly IMapper _mapper;
@@ -29,6 +30,7 @@ namespace WebApplication10.Controllers
             IWeatherRepository weatherRepository,
             ICacheService cacheService,
             IWeatherService weatherService,
+            ApplicationDbContext context,
             ILogger<CityController> logger,
             IMapper mapper)
         {
@@ -37,23 +39,51 @@ namespace WebApplication10.Controllers
             this._weatherRepository = weatherRepository;
             this._cacheService = cacheService;
             this._weatherService = weatherService;
+            this._context = context;
             this._logger = logger;
             this._mapper = mapper;
         }
 
         private static object _lock = new object();
         [Authorize(Roles = "User")]
-        [HttpGet("Show all cities")]
+        [HttpGet("showAllCities")]
         [ProducesResponseType(200, Type = typeof(IEnumerable<City>))]
-        public IEnumerable<CityDto> getCities()
+        public async Task<IEnumerable<CityDto>> getCities()
         {
             List<City> _cities = _cityRpository.getCities();
+
+            foreach (var city in _cities)
+            {
+                if (_weatherRepository.isUpdateWeather(city.Name))
+                {
+                    var _weatherData = await _weatherService.GetWeatherDataAsync(city.Name);
+                    WeatherDto weatherData = new WeatherDto
+                    {
+                        description = _weatherData.FirstOrDefault().description,
+                        icon = _weatherData.FirstOrDefault().icon,
+                        main = _weatherData.FirstOrDefault().main,
+                        CityID = city.Id
+                    };
+
+                    var weather = _weatherRepository.getWeatherData(city.Id);
+                    if (weather != null)
+                        _weatherRepository.delete(weather);
+
+                    var _weather = _mapper.Map<WeatherData>(weatherData);
+
+                    city.TimeUpdateWeather = DateTime.Now;
+                    city.CurrentWeather = weatherData.description;
+
+                    _weatherRepository.add(_weather);
+                }
+            }
+
             var cities = _mapper.Map<List<CityDto>>(_cities);
             return cities;
         }
 
         [Authorize(Roles = "User")]
-        [HttpGet("City Name")]
+        [HttpGet("cityName")]
         [ProducesResponseType(200, Type = typeof(City))]
         [ProducesResponseType(400)]
         public async Task<IActionResult> getCityByName(string name)
@@ -73,9 +103,8 @@ namespace WebApplication10.Controllers
 
             var city = _mapper.Map<CityDto>(_cityRpository.getByCityName(name));
 
-            int hourDifference = city.TimeUpdateWeather.Hour - DateTime.Now.Hour;
-            int secondDifference = city.TimeUpdateWeather.Second - DateTime.Now.Second;
-            if (hourDifference > 24 && secondDifference > 0)
+            //int hourDifference = city.TimeUpdateWeather.Hour - DateTime.Now.Hour;
+            if (_weatherRepository.isUpdateWeather(city.Name))
             {
                 var _weatherData = await _weatherService.GetWeatherDataAsync(name);
                 WeatherData weatherData = new WeatherData
@@ -85,8 +114,14 @@ namespace WebApplication10.Controllers
                     icon = _weatherData.FirstOrDefault().icon,
                     main = _weatherData.FirstOrDefault().main,
                 };
+
+                var w = _weatherRepository.getWeatherData(_cityRpository.getByCityName(name).Id);
+                if (w != null)
+                    _weatherRepository.delete(w);
+
+                _weatherRepository.add(weatherData);
                 city.TimeUpdateWeather = DateTime.Now;
-                city.CurrentWeather = _weatherData.FirstOrDefault().description;
+                city.CurrentWeather = weatherData.description;
             }
 
             cities.Add(city);
@@ -96,10 +131,10 @@ namespace WebApplication10.Controllers
         }
 
         [Authorize(Roles = "User")]
-        [HttpGet("Country Name")]
+        [HttpGet("countryName")]
         [ProducesResponseType(200, Type = typeof(IEnumerable<City>))]
         [ProducesResponseType(400)]
-        public IActionResult getCityByCountryName(string countryName)
+        public async Task<IActionResult> getCityByCountryName(string countryName)
         {
             var cacheData = _cacheService.GetData<IEnumerable<CityDto>>("city by country name");
             if (cacheData != null)
@@ -114,6 +149,34 @@ namespace WebApplication10.Controllers
 
             var expirationTime = DateTimeOffset.Now.AddMinutes(5.0);
             var cities = _mapper.Map<IEnumerable<CityDto>>(_cityRpository.getCityByContryName(countryName));
+
+            foreach (var city in cities)
+            {
+                if (_weatherRepository.isUpdateWeather(city.Name))
+                {
+                    var _weatherData = await _weatherService.GetWeatherDataAsync(city.Name);
+
+                    WeatherDto weatherDto = new WeatherDto
+                    {
+                        description = _weatherData.FirstOrDefault().description,
+                        icon = _weatherData.FirstOrDefault().icon,
+                        main = _weatherData.FirstOrDefault().main,
+                        CityID = _cityRpository.getByCityName(city.Name).Id,
+                    };
+
+                    var weather = _weatherRepository.getWeatherData(_cityRpository.getByCityName(city.Name).Id);
+                    if (weather != null)
+                        _weatherRepository.delete(weather);
+
+                    var _weather = _mapper.Map<WeatherData>(weatherDto);
+
+                    city.TimeUpdateWeather = DateTime.Now;
+                    city.CurrentWeather = weatherDto.description;
+
+                    _weatherRepository.add(_weather);
+                }
+
+            }
             cacheData = cities.ToList();
             _cacheService.SetData<IEnumerable<CityDto>>("city by country name", cacheData, expirationTime);
 
@@ -121,11 +184,10 @@ namespace WebApplication10.Controllers
         }
 
         [Authorize(Roles = "Admin")]
-        [HttpPost("add city")]
+        [HttpPost("addCity")]
         [ProducesResponseType(400)]
-        public async Task<IActionResult> create(string name,long population,string countryName,int weatherId)
+        public async Task<IActionResult> create(string name, long population, string countryName, int weatherId)
         {
-            var weatherData = await _weatherService.GetWeatherDataAsync(name);
             var c = _cityRpository.getByCityName(name);
             if (c != null)
             {
@@ -154,20 +216,33 @@ namespace WebApplication10.Controllers
 
             CityDto cityCreate = new CityDto
             {
-                Name=name,
-                Population=population,
-                CountryName=countryName,
-                WeatherId=weatherId,
+                Name = name,
+                Population = population,
+                CountryName = countryName,
+                WeatherId = weatherId,
+            };
+
+            var cityMap = _mapper.Map<City>(cityCreate);
+
+            var weatherData = await _weatherService.GetWeatherDataAsync(name);
+
+            WeatherData weather = new WeatherData
+            {
+                description = weatherData.FirstOrDefault().description,
+                icon = weatherData.FirstOrDefault().icon,
+                main = weatherData.FirstOrDefault().main,
             };
 
             try
             {
-                var cityMap = _mapper.Map<City>(cityCreate);
                 cityMap.CurrentWeather = weatherData.FirstOrDefault().description;
                 cityMap.TimeUpdateWeather = DateTime.Now;
                 cityMap.countryId = country.Id;
                 cityMap.Weather = _weatherRepository.setWeather(cityCreate.WeatherId);
+                cityMap.CurrentWeather = weather.description;
                 _cityRpository.add(cityMap);
+                weather.CityID = _cityRpository.getByCityName(name).Id;
+                _weatherRepository.add(weather);
             }
             catch (Exception ex)
             {
@@ -178,34 +253,31 @@ namespace WebApplication10.Controllers
         }
 
         [Authorize(Roles = "Admin")]
-        [HttpPut("update")]
+        [HttpPut("updateCity")]
         [ProducesResponseType(400)]
         [ProducesResponseType(204)]
         [ProducesResponseType(404)]
-        public IActionResult UpdateCity([FromBody] CityDto updateCity)
+        public IActionResult UpdateCity(string name,string countryName,long population,int weatherId)
         {
-            var city = _cityRpository.getByCityNameNoTracking(updateCity.Name);
-            var country = _countryRpository.getByCountryName(updateCity.CountryName);
+            var city = _cityRpository.getByCityNameNoTracking(name);
 
-            if (updateCity == null) return BadRequest(ModelState);
+            var country = _countryRpository.getByCountryName(countryName);
 
-            if (updateCity.Name != city.Name) return BadRequest(ModelState);
-
-            if (!_cityRpository.existCity(updateCity.Name)) return NotFound();
+            if (!_cityRpository.existCity(name)) return NotFound();
 
             if (!ModelState.IsValid) return BadRequest(ModelState);
 
             var UpdateCity = new CityDto
             {
-                Name = updateCity.Name,
-                Population = updateCity.Population,
-                CountryName = updateCity.CountryName,
-                WeatherId = updateCity.WeatherId
+                Name = name,
+                Population = population,
+                CountryName = countryName,
+                WeatherId = weatherId
             };
 
             var cityMap = _mapper.Map<City>(UpdateCity);
             cityMap.Id = city.Id;
-            cityMap.Weather = _weatherRepository.setWeather(updateCity.WeatherId);
+            cityMap.Weather = _weatherRepository.setWeather(weatherId);
             cityMap.countryId = country.Id;
 
             if (!_cityRpository.update(cityMap))
@@ -223,23 +295,26 @@ namespace WebApplication10.Controllers
         }
 
         [Authorize(Roles = "Admin")]
-        [HttpDelete("delete")]
+        [HttpDelete("deleteCity")]
         [ProducesResponseType(404)]
         public IActionResult DeleteCity(string cityName)
         {
             if (!_cityRpository.existCity(cityName)) return NotFound();
 
-            var city = _cityRpository.getByCityNameNoTracking(cityName);
+            var weather = _weatherRepository.getWeatherData(_cityRpository.getByCityName(cityName).Id);
+
+            var city = _cityRpository.getByCityName(cityName);
 
             if (!ModelState.IsValid) return BadRequest(ModelState);
 
-            if (!_cityRpository.delete(city))
+            var users = _context.Users.Where(c => c.CityId == city.Id);
+            foreach (var user in users)
             {
-                _logger.LogError("city does not delete.");
-                ModelState.AddModelError("", "Something went wrong deleting city");
+                user.CityId = null;
             }
 
             _cityRpository.delete(city);
+            _weatherRepository.delete(weather);
 
             _cacheService.RemoveData("city by country name");
             _cacheService.RemoveData("city by name");

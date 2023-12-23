@@ -84,7 +84,7 @@ try
 
     builder.Services.AddHttpClient<WeatherService>();
     builder.Services.AddSingleton<WeatherService>();
-    //builder.Services.AddControllers();
+    builder.Services.AddControllers();
 
     builder.Services.AddSwaggerGen(
         opt =>
@@ -129,6 +129,8 @@ try
     app.UseAuthentication();
 
     app.UseAuthorization();
+
+    app.MapControllers();
 
     app.Run();
 }

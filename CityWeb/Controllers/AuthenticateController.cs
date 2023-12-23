@@ -173,7 +173,7 @@ namespace CityWeb.Controllers
 
         [HttpPost]
         [Route("register-admin")]
-        public async Task<IActionResult> RegisterAdmin([FromBody] RegisterUserDto model)
+        public async Task<IActionResult> RegisterAdmin( RegisterUserDto model)
         {
             var userExists = await _userManager.FindByNameAsync(model.UserName);
             if (userExists != null)

@@ -13,6 +13,7 @@ namespace CityWeb.Helper
             CreateMap<CityDto, City>();
             CreateMap<City, CityDto>();
             CreateMap<City,IEnumerable<CityDto>>();
+            CreateMap<WeatherDto,WeatherData>();
             CreateMap<WeatherData,WeatherDto>();
             CreateMap<CountryDto, Country>();
             CreateMap<Country, CountryDto>();

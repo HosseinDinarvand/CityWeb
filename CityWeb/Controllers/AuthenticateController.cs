@@ -59,7 +59,7 @@ namespace CityWeb.Controllers
 
 
         [HttpPost]
-        [Route("login")]
+        [Route("logIn")]
         public async Task<IActionResult> Login([FromBody] LoginUserDto model)
         {
             var user = await _userManager.FindByNameAsync(model.Username);
@@ -101,7 +101,7 @@ namespace CityWeb.Controllers
 
 
         [HttpPost]
-        [Route("register-user")]
+        [Route("registerUser")]
         public async Task<IActionResult> Register([FromBody] RegisterUserDto model)
         {
             var userExist = await _userManager.FindByNameAsync(model.UserName);
@@ -172,7 +172,7 @@ namespace CityWeb.Controllers
 
 
         [HttpPost]
-        [Route("register-admin")]
+        [Route("registerAdmin")]
         public async Task<IActionResult> RegisterAdmin( RegisterUserDto model)
         {
             var userExists = await _userManager.FindByNameAsync(model.UserName);
@@ -246,7 +246,7 @@ namespace CityWeb.Controllers
 
 
         [HttpPost]
-        [Route("refresh-token")]
+        [Route("refreshToken")]
         public async Task<IActionResult> RefreshToken(Token tokenModel)
         {
             if (tokenModel is null)
@@ -286,7 +286,7 @@ namespace CityWeb.Controllers
 
 
         [HttpPost]
-        [Route("revoke/{username}")]
+        [Route("revoke")]
         public async Task<IActionResult> Revoke(string username)
         {
             var user = await _userManager.FindByNameAsync(username);
@@ -300,7 +300,7 @@ namespace CityWeb.Controllers
 
 
         [HttpPost]
-        [Route("revoke-all")]
+        [Route("revokeAll")]
         public async Task<IActionResult> RevokeAll()
         {
             var users = _userManager.Users.ToList();
